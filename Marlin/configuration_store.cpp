@@ -204,7 +204,7 @@ void Config_StoreSettings()  {
     for (uint8_t q = 0; q < mesh_num_x * mesh_num_y; q++) EEPROM_WRITE_VAR(i, dummy);
   #endif // MESH_BED_LEVELING
 
-  #if DISABLED(AUTO_BED_LEVELING_FEATURE)
+  #if DISABLED(AUTO_BED_LEVELING_FEATURE) && DISABLED(AUTO_MESH_BED_LEVELING)
     float zprobe_zoffset = 0;
   #endif
   EEPROM_WRITE_VAR(i, zprobe_zoffset);
@@ -380,7 +380,7 @@ void Config_RetrieveSettings() {
       for (uint8_t q = 0; q < mesh_num_x * mesh_num_y; q++) EEPROM_READ_VAR(i, dummy);
     #endif // MESH_BED_LEVELING
 
-    #if DISABLED(AUTO_BED_LEVELING_FEATURE)
+    #if DISABLED(AUTO_BED_LEVELING_FEATURE) && DISABLED(AUTO_MESH_BED_LEVELING)
       float zprobe_zoffset = 0;
     #endif
     EEPROM_READ_VAR(i, zprobe_zoffset);
@@ -547,7 +547,7 @@ void Config_ResetDefault() {
     mbl.active = 0;
   #endif
 
-  #if ENABLED(AUTO_BED_LEVELING_FEATURE)
+  #if ENABLED(AUTO_BED_LEVELING_FEATURE) || ENABLED(AUTO_MESH_BED_LEVELING)
     zprobe_zoffset = Z_PROBE_OFFSET_FROM_EXTRUDER;
   #endif
 
@@ -919,7 +919,7 @@ void Config_PrintSettings(bool forReplay) {
   /**
    * Auto Bed Leveling
    */
-  #if ENABLED(AUTO_BED_LEVELING_FEATURE)
+  #if ENABLED(AUTO_BED_LEVELING_FEATURE)||(ENABLED(AUTO_MESH_BED_LEVELING))
     #if ENABLED(CUSTOM_M_CODES)
       if (!forReplay) {
         CONFIG_ECHO_START;

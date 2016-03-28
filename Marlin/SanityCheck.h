@@ -180,7 +180,7 @@
 /**
  * Auto Bed Leveling
  */
-#if ENABLED(AUTO_BED_LEVELING_FEATURE)
+#if ENABLED(AUTO_BED_LEVELING_FEATURE) || HAS_Z_PROBE || HAS_Z_MIN_PROBE
 
   /**
    * Require a Z min pin
@@ -239,7 +239,9 @@
       #endif
     #endif
   #else // !AUTO_BED_LEVELING_GRID
+#endif // AUTO_BED_LEVELING || HAS_Z_PROBE || HAS_Z_MIN_PROBE
 
+#if ENABLED(AUTO_BED_LEVELING_FEATURE)
     // Check the triangulation points
     #if ABL_PROBE_PT_1_X < MIN_PROBE_X || ABL_PROBE_PT_1_X > MAX_PROBE_X
       #error "The given ABL_PROBE_PT_1_X can't be reached by the Z probe."

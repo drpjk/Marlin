@@ -101,7 +101,7 @@
  * G11 - retract recover filament according to settings of M208
  * G28 - Home one or more axes
  * G29 - Detailed Z probe, probes the bed at 3 or more points.  Will fail if you haven't homed yet.
- * G30 - Single Z probe, probes bed at current XY location.
+ * G30 - Single Z probe, probes bed at current XY location. [ optional P <num> ] iterations averaged
  * G31 - Dock sled (Z_PROBE_SLED only)
  * G32 - Undock sled (Z_PROBE_SLED only)
  * G90 - Use Absolute Coordinates
@@ -302,9 +302,12 @@ millis_t print_job_start_ms = 0; ///< Print job start time
 millis_t print_job_stop_ms = 0;  ///< Print job stop time
 static uint8_t target_extruder;
 
-#if ENABLED(AUTO_BED_LEVELING_FEATURE)
+//#if ENABLED(AUTO_BED_LEVELING_FEATURE)
+#if ENABLED(AUTO_BED_LEVELING_FEATURE) || ENABLED(AUTO_MESH_BED_LEVELING)
   int xy_travel_speed = XY_TRAVEL_SPEED;
   float zprobe_zoffset = Z_PROBE_OFFSET_FROM_EXTRUDER;
+#else
+	#error HAS_Z_PROBE not set properly
 #endif
 
 #if ENABLED(Z_DUAL_ENDSTOPS) && DISABLED(DELTA)
@@ -1206,7 +1209,7 @@ static void set_axis_is_at_home(AxisEnum axis) {
     min_pos[axis] = base_min_pos(axis) + home_offset[axis];
     max_pos[axis] = base_max_pos(axis) + home_offset[axis];
 
-    #if ENABLED(AUTO_BED_LEVELING_FEATURE) && Z_HOME_DIR < 0
+    #if ((ENABLED(AUTO_BED_LEVELING_FEATURE)) || ENABLED(AUTO_MESH_BED_LEVELING)) && Z_HOME_DIR < 0
       if (axis == Z_AXIS) current_position[Z_AXIS] -= zprobe_zoffset;
     #endif
 
@@ -1354,6 +1357,7 @@ static void setup_for_endstop_move() {
     }
 
   #endif // !AUTO_BED_LEVELING_GRID
+#endif // AUTO_BED_LEVELING_FEATURE
 
   static void run_z_probe() {
 
@@ -1392,7 +1396,11 @@ static void setup_for_endstop_move() {
 
     #else // !DELTA
 
+	#if ENABLED(AUTO_BED_LEVELING_FEATURE)
       plan_bed_level_matrix.set_to_identity();
+    #elif ENABLED(AUTO_MESH_BED_LEVELING)
+		mbl.active=0;
+	#endif
       feedrate = homing_feedrate[Z_AXIS];
 
       // Move down until the Z probe (or endstop?) is triggered
@@ -1477,7 +1485,13 @@ static void setup_for_endstop_move() {
   inline void do_blocking_move_to_xy(float x, float y) { do_blocking_move_to(x, y, current_position[Z_AXIS]); }
   inline void do_blocking_move_to_x(float x) { do_blocking_move_to(x, current_position[Y_AXIS], current_position[Z_AXIS]); }
   inline void do_blocking_move_to_z(float z) { do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], z); }
-  inline void raise_z_after_probing() { do_blocking_move_to_z(current_position[Z_AXIS] + Z_RAISE_AFTER_PROBING); }
+  inline void raise_z_after_probing() {   
+		if ( axis_known_position[Z_AXIS])
+			do_blocking_move_to_z(Z_RAISE_AFTER_PROBING); 
+		else
+				do_blocking_move_to_z(current_position[Z_AXIS] + Z_RAISE_AFTER_PROBING);  
+
+	}
 
   static void clean_up_after_endstop_move() {
     #if ENABLED(DEBUG_LEVELING_FEATURE)
@@ -1579,7 +1593,7 @@ static void setup_for_endstop_move() {
           Stop();
         }
 
-    #endif // Z_PROBE_ALLEN_KEY
+    #endif // HAS_SERVO_ENDSTOPS && Z_PROBE_ALLEN_KEY
 
     #if ENABLED(FIX_MOUNTED_PROBE)
       // Noting to be done. Just set z_probe_is_active
@@ -1843,18 +1857,23 @@ static void setup_for_endstop_move() {
   #endif // DELTA
 
   #if HAS_SERVO_ENDSTOPS && DISABLED(Z_PROBE_SLED)
+//----------Raise z for servo
+//---------by Z_RAISE_BEFORE_PROBING if position is not known
+//---------by zprobe_zoffset  if position known and current position if lower than this.
 
     void raise_z_for_servo() {
-      float zpos = current_position[Z_AXIS], z_dest = Z_RAISE_BEFORE_PROBING;
-      // The zprobe_zoffset is negative any switch below the nozzle, so
-      // multiply by Z_HOME_DIR (-1) to move enough away from bed for the probe
-      z_dest += axis_known_position[Z_AXIS] ? zprobe_zoffset * Z_HOME_DIR : zpos;
-      if (zpos < z_dest) do_blocking_move_to_z(z_dest); // also updates current_position
+      float zpos = current_position[Z_AXIS], z_dest;
+      z_dest = axis_known_position[Z_AXIS] ?  1 - zprobe_zoffset : zpos + Z_RAISE_BEFORE_PROBING;
+      if (zpos < z_dest) {
+		do_blocking_move_to_z(z_dest); // also updates current_position
+		st_synchronize();
+	  }
     }
 
   #endif
 
-#endif // AUTO_BED_LEVELING_FEATURE
+//  #endif // AUTO_BED_LEVELING_FEATURE moved up to prior to run_z_probe()
+// to alow z probing even if not engaging auto leveling
 
 static void unknown_position_error() {
   LCD_MESSAGEPGM(MSG_POSITION_UNKNOWN);
@@ -1862,7 +1881,7 @@ static void unknown_position_error() {
   SERIAL_ECHOLNPGM(MSG_POSITION_UNKNOWN);
 }
 
-#if ENABLED(Z_PROBE_SLED)
+#if ENABLED(Z_PROBE_SLED)   // this implies that is DELTA
 
   #ifndef SLED_DOCKING_OFFSET
     #define SLED_DOCKING_OFFSET 0
@@ -2715,7 +2734,17 @@ inline void gcode_G28() {
 
 }
 
-#if ENABLED(MESH_BED_LEVELING)
+#if ENABLED(AUTO_BED_LEVELING_FEATURE) || ENABLED(AUTO_MESH_BED_LEVELING)
+
+  void out_of_range_error(const char* p_edge) {
+    SERIAL_PROTOCOLPGM("?Probe ");
+    serialprintPGM(p_edge);
+    SERIAL_PROTOCOLLNPGM(" position out of range.");
+  }
+
+#endif
+
+#if ENABLED(MANUAL_MESH_BED_LEVELING)
 
   enum MeshLevelingState { MeshReport, MeshStart, MeshNext, MeshSet };
 
@@ -2852,6 +2881,175 @@ inline void gcode_G28() {
 
     } // switch(state)
   }
+
+#elif ENABLED(AUTO_MESH_BED_LEVELING)
+
+/**
+   * G29: Detailed Z probe, probes the bed at 3 or more points.
+   *      Will fail if the printer has not been homed with G28.
+   *
+   * Enhanced G29 Auto Bed Leveling Probe Routine
+   *
+   * Parameters With AUTO_BED_LEVELING_GRID:
+   *
+   *  S  Set the XY travel speed between probe points (in mm/min)
+   *
+   *
+   *  V  Set the verbose level (0-4). Example: "G29 V3"
+   *
+   *  T  Generate a Bed Topology Report. Example: "G29 P5 T" for a detailed report.
+   *     This is useful for manual bed leveling and finding flaws in the bed (to
+   *     assist with part placement).
+   *     Not supported by non-linear delta printer bed leveling.
+   *
+   *
+   * Global Parameters:
+   *
+   * E/e By default G29 will engage the Z probe, test the bed, then disengage.
+   *     Include "E" to engage/disengage the Z probe for each sample.
+   *     There's no extra effect if you have a fixed Z probe.
+   *     Usage: "G29 E" or "G29 e"
+   *
+   */
+  inline void gcode_G29() {
+   #if ENABLED(DEBUG_LEVELING_FEATURE)
+      if (marlin_debug_flags & DEBUG_LEVELING) {
+        SERIAL_ECHOLNPGM("gcode_G29 >>>");
+      }
+    #endif
+	if (code_seen('T')) {
+				
+		if (!mbl.active)		{
+			SERIAL_PROTOCOLLNPGM("Mesh bed leveling not active.");
+		}
+       SERIAL_PROTOCOLPGM("Num X,Y: ");
+       SERIAL_PROTOCOL(MESH_NUM_X_POINTS);
+       SERIAL_PROTOCOLCHAR(',');
+       SERIAL_PROTOCOL(MESH_NUM_Y_POINTS);
+       SERIAL_PROTOCOLPGM("\nZ search height: ");
+       SERIAL_PROTOCOL(MESH_HOME_SEARCH_Z);
+       SERIAL_PROTOCOLLNPGM("\nMeasured points:");
+       for (int y = 0; y < MESH_NUM_Y_POINTS; y++) {
+          for (int x = 0; x < MESH_NUM_X_POINTS; x++) {
+            SERIAL_PROTOCOLPGM("  ");
+            SERIAL_PROTOCOL_F(mbl.z_values[y][x], 3);
+         }
+            SERIAL_EOL;
+       }
+    
+       return;
+	}
+
+    // Don't allow auto-leveling without homing first
+		if (!axis_known_position[X_AXIS] || !axis_known_position[Y_AXIS]) {
+			LCD_MESSAGEPGM(MSG_POSITION_UNKNOWN);
+			SERIAL_ECHO_START;
+			SERIAL_ECHOLNPGM(MSG_POSITION_UNKNOWN);
+			return;
+		}
+
+		int verbose_level = code_seen('V') ? code_value_short() : 1;
+		if (verbose_level < 0 || verbose_level > 4) {
+			SERIAL_ECHOLNPGM("?(V)erbose Level is implausible (0-4).");
+			return;
+		}
+
+		bool deploy_probe_for_each_reading = code_seen('E');
+		bool do_topography_map = verbose_level > 2 || code_seen('T');
+		if (verbose_level > 0) {
+			SERIAL_PROTOCOLPGM("G29 Auto Bed Leveling\n");
+		}
+      //int auto_bed_leveling_grid_points = MESH_NUM_Y_POINTS*MESH_NUM_X_POINTS;
+		 xy_travel_speed = code_seen('S') ? code_value_short() : XY_TRAVEL_SPEED;
+		 
+		#if ENABLED(Z_PROBE_SLED)
+			dock_sled(false); // engage (un-dock) the Z probe
+		#elif ENABLED(Z_PROBE_ALLEN_KEY) //|| SERVO_LEVELING
+			deploy_z_probe();
+		#endif
+		
+		st_synchronize();
+		// make sure the bed_level_rotation_matrix is identity or the planner will get it wrong
+		mbl.reset();		
+		setup_for_endstop_move();
+		feedrate = homing_feedrate[Z_AXIS];
+		
+		int xCount,yCount;
+		const int xGridSpacing = (MESH_MAX_X - MESH_MIN_X)/(MESH_NUM_X_POINTS - 1);
+		const int yGridSpacing = (MESH_MAX_Y - MESH_MIN_Y)/(MESH_NUM_Y_POINTS - 1);
+		int probePointCounter = 0;
+		//always end at [MESH_MAX_X, MESH_MAX_Y]
+		bool zig = (MESH_NUM_Y_POINTS & 1) ? true : false; 
+		
+		for (int yCount = 0; yCount < MESH_NUM_Y_POINTS; yCount++) {
+        int yProbe = MESH_MIN_Y + yGridSpacing * yCount;
+        int xStart, xStop, xInc;
+
+        if (zig) {
+          xStart = 0;
+          xStop = MESH_NUM_X_POINTS;
+          xInc = 1;
+        }
+        else {
+          xStart = MESH_NUM_X_POINTS - 1;
+          xStop = -1;
+          xInc = -1;
+        }
+        zig = !zig;
+        for (int xCount = xStart; xCount != xStop; xCount += xInc) {
+          int xProbe = MESH_MIN_X + xGridSpacing * xCount;
+          // raise extruder
+          float measured_z,
+                z_before = probePointCounter ? Z_RAISE_BETWEEN_PROBINGS + current_position[Z_AXIS] : Z_RAISE_BEFORE_PROBING;
+
+          if (probePointCounter) {
+            #if ENABLED(DEBUG_LEVELING_FEATURE)
+              if (marlin_debug_flags & DEBUG_LEVELING) {
+                SERIAL_ECHOPAIR("z_before = (between) ", (float)(Z_RAISE_BETWEEN_PROBINGS + current_position[Z_AXIS]));
+                SERIAL_EOL;
+              }
+            #endif
+          }
+          else {
+            #if ENABLED(DEBUG_LEVELING_FEATURE)
+              if (marlin_debug_flags & DEBUG_LEVELING) {
+                SERIAL_ECHOPAIR("z_before = (before) ", (float)Z_RAISE_BEFORE_PROBING);
+                SERIAL_EOL;
+              }
+            #endif
+          }
+          ProbeAction act;
+          if (deploy_probe_for_each_reading) // G29 E - Stow between probes
+            act = ProbeDeployAndStow;
+          else if (yCount == 0 && xCount == xStart)
+            act = ProbeDeploy;
+          else if (yCount == MESH_NUM_Y_POINTS - 1 && xCount == xStop - xInc)
+            act = ProbeStow;
+          else
+            act = ProbeStay;
+         measured_z = probe_pt(xProbe, yProbe, z_before, act, verbose_level)+zprobe_zoffset;
+         mbl.set_z(xCount,yCount,measured_z);
+         probePointCounter++;
+
+         idle();
+
+        } //xProbe
+      } //yProbe
+      
+      
+      
+       #if ENABLED(DEBUG_LEVELING_FEATURE)
+        if (marlin_debug_flags & DEBUG_LEVELING) {
+          print_xyz("> probing complete > current_position", current_position);
+        }
+      #endif
+
+      clean_up_after_endstop_move();
+		sync_plan_position();
+      
+
+	}
+
 
 #elif ENABLED(AUTO_BED_LEVELING_FEATURE)
 
@@ -3353,6 +3551,8 @@ inline void gcode_G28() {
 
   }
 
+ 
+#endif //AUTO_BED_LEVELING_FEATURE
   #if DISABLED(Z_PROBE_SLED) // could be avoided
 
     /**
@@ -3362,48 +3562,84 @@ inline void gcode_G28() {
       #if HAS_SERVO_ENDSTOPS
         raise_z_for_servo();
       #endif
+
+      int iterations = code_seen('P') ? code_value_short() : 1;
+			if (iterations < 1 || iterations > 6) {
+			SERIAL_ECHOLNPGM("Iterations P: must be 1 - 6.");
+			return;
+      }
+      
       deploy_z_probe(); // Engage Z Servo endstop if available. Z_PROBE_SLED is missed her.
 
       st_synchronize();
       // TODO: clear the leveling matrix or the planner will be set incorrectly
       setup_for_endstop_move(); // to late. Must be done before deploying.
 
+      float mean=0, sumsq=0, lastmean=0;
+      int n;
+      for (n=1;n<=iterations;++n)
+      {
+
       feedrate = homing_feedrate[Z_AXIS];
 
       run_z_probe();
-      SERIAL_PROTOCOLPGM("Bed X: ");
-      SERIAL_PROTOCOL(current_position[X_AXIS] + 0.0001);
-      SERIAL_PROTOCOLPGM(" Y: ");
-      SERIAL_PROTOCOL(current_position[Y_AXIS] + 0.0001);
-      SERIAL_PROTOCOLPGM(" Z: ");
-      SERIAL_PROTOCOL(current_position[Z_AXIS] + 0.0001);
-      SERIAL_EOL;
 
-      clean_up_after_endstop_move(); // to early. must be done after the stowing.
+		//Z reading when hot head is at z-probe position
+		// needs to adjust for zprobe_zoffset and home_offset[Z_AXIS}
+		float reading = current_position[Z_AXIS]+zprobe_zoffset+home_offset[Z_AXIS];  
+		lastmean = mean;
+		mean = lastmean+(reading - lastmean)/n;
+		sumsq += (reading - lastmean)*(reading - mean);
+
+		SERIAL_PROTOCOLPGM("Bed X: ");
+        SERIAL_PROTOCOL(current_position[X_AXIS] + 0.0001);
+        SERIAL_PROTOCOLPGM(" Y: ");
+        SERIAL_PROTOCOL(current_position[Y_AXIS] + 0.0001);
+        SERIAL_PROTOCOLPGM(" Z: ");
+        SERIAL_PROTOCOL_F(reading + 0.0001,3);
+        SERIAL_EOL;	
+        	raise_z_after_probing();	
+      }
+      if (iterations>1) {
+		  SERIAL_PROTOCOLPGM("Mean Z: ");
+		  SERIAL_PROTOCOL_F(mean ,3);
+		  SERIAL_PROTOCOLPGM("Std Z: ");
+		  SERIAL_PROTOCOL_F(sqrt(sumsq/(iterations-1)) ,3);
+        SERIAL_EOL;		
+      }
+      clean_up_after_endstop_move();
 
       #if HAS_SERVO_ENDSTOPS
         raise_z_for_servo();
       #endif
-      stow_z_probe(false); // Retract Z Servo endstop if available. Z_PROBE_SLED is missed her.
-
-      gcode_M114(); // Send end position to RepetierHost
+      stow_z_probe(false); // Retract Z Servo endstop if available
     }
 
   #endif //!Z_PROBE_SLED
 
-#endif //AUTO_BED_LEVELING_FEATURE
 
 /**
  * G92: Set current position to given X Y Z E
+ * note 'R' indicates relative change
  */
 inline void gcode_G92() {
-  if (!code_seen(axis_codes[E_AXIS]))
-    st_synchronize();
+	bool relative = false;
+	float v;
+	if (!code_seen(axis_codes[E_AXIS]))
+		st_synchronize();
+	if ( code_seen('R')) {
+		relative = true;
+	}
 
   bool didXYZ = false;
   for (int i = 0; i < NUM_AXIS; i++) {
     if (code_seen(axis_codes[i])) {
-      float v = current_position[i] = code_value();
+		if (relative) {
+			 v = current_position[i] + code_value();
+			 current_position[i]=v;
+		}		 
+		else
+			v = current_position[i] = code_value();
       if (i == E_AXIS)
         plan_set_e_position(v);
       else
@@ -3680,7 +3916,7 @@ inline void gcode_M42() {
   } // code_seen('S')
 }
 
-#if ENABLED(AUTO_BED_LEVELING_FEATURE) && ENABLED(Z_MIN_PROBE_REPEATABILITY_TEST)
+#if (ENABLED(AUTO_BED_LEVELING_FEATURE)||ENABLED(AUTO_MESH_BED_LEVELING)) && ENABLED(Z_MIN_PROBE_REPEATABILITY_TEST)
 
   // This is redundant since the SanityCheck.h already checks for a valid Z_MIN_PROBE_PIN, but here for clarity.
   #if ENABLED(Z_MIN_PROBE_ENDSTOP)
@@ -3798,8 +4034,10 @@ inline void gcode_M42() {
 
     #if ENABLED(DELTA)
       reset_bed_level();    // we don't do bed level correction in M48 because we want the raw data when we probe
-    #else
+    #elif ENABLED(AUTO_BED_LEVELING_FEATURE)
       plan_bed_level_matrix.set_to_identity();  // we don't do bed level correction in M48 because we wantthe raw data when we probe
+    #else 
+		mbl.active=0;
     #endif
 
     if (Z_start_location < Z_RAISE_BEFORE_PROBING * 2.0)
@@ -3886,8 +4124,8 @@ inline void gcode_M42() {
             delay(55);
           }
           do_blocking_move_to_xy(X_current, Y_current);
-        } // n_legs loop
-      } // n_legs
+        } // for n_legs loop
+      } //  if (n_legs)
 
       // We don't really have to do this move, but if we don't we can see a funny shift in the Z Height
       // Because the user might not have the Z_RAISE_BEFORE_PROBING height identical to the
@@ -3936,7 +4174,7 @@ inline void gcode_M42() {
       if (verbose_level > 0) SERIAL_EOL;
       delay(50);
       do_blocking_move_to_z(current_position[Z_AXIS] + Z_RAISE_BETWEEN_PROBINGS);
-    }  // End of probe loop code
+    }  // End of for loop prbe n times
 
     // raise_z_after_probing();
 
@@ -3957,7 +4195,37 @@ inline void gcode_M42() {
     gcode_M114(); // Send end position to RepetierHost
   }
 
-#endif // AUTO_BED_LEVELING_FEATURE && Z_MIN_PROBE_REPEATABILITY_TEST
+#endif // (ENABLED(AUTO_BED_LEVELING_FEATURE)||ENABLED(AUTO_MESH_BED_LEVELING)) && ENABLED(Z_MIN_PROBE_REPEATABILITY_TEST)
+
+
+//================= ==============================
+//======M53 display some info=====================
+inline void gcode_M53()  {
+      SERIAL_PROTOCOLPGM("Current X: ");
+		SERIAL_PROTOCOL_F(current_position[X_AXIS], 3);
+      SERIAL_PROTOCOLPGM(" Y: ");
+      SERIAL_PROTOCOL_F(current_position[Y_AXIS], 3);
+      SERIAL_PROTOCOLPGM(" Z: ");
+      SERIAL_PROTOCOL_F(current_position[Z_AXIS], 3);
+      SERIAL_EOL;
+      SERIAL_PROTOCOLPGM("From Step count X: ");
+		SERIAL_PROTOCOL(st_get_axis_position_mm(X_AXIS));
+		SERIAL_PROTOCOLPGM(" Y:");
+		SERIAL_PROTOCOL(st_get_axis_position_mm(Y_AXIS));
+		SERIAL_PROTOCOLPGM(" Z:");
+		SERIAL_PROTOCOL_F(st_get_axis_position_mm(Z_AXIS),3);
+		SERIAL_EOL;    
+		SERIAL_PROTOCOLPGM("Destination X: ");
+		SERIAL_PROTOCOL_F(destination[X_AXIS], 3);
+      SERIAL_PROTOCOLPGM(" Y: ");
+      SERIAL_PROTOCOL_F(destination[Y_AXIS], 3);
+      SERIAL_PROTOCOLPGM(" Z: ");
+      SERIAL_PROTOCOL_F(destination[Z_AXIS], 3);
+      SERIAL_EOL;
+
+	
+}
+
 
 /**
  * M104: Set hot end temperature
@@ -4479,7 +4747,7 @@ inline void gcode_M114() {
   SERIAL_PROTOCOLPGM(" Y:");
   SERIAL_PROTOCOL(current_position[Y_AXIS]);
   SERIAL_PROTOCOLPGM(" Z:");
-  SERIAL_PROTOCOL(current_position[Z_AXIS]);
+  SERIAL_PROTOCOL_F(current_position[Z_AXIS],3);
   SERIAL_PROTOCOLPGM(" E:");
   SERIAL_PROTOCOL(current_position[E_AXIS]);
 
@@ -5291,7 +5559,7 @@ inline void gcode_M303() {
  */
 inline void gcode_M400() { st_synchronize(); }
 
-#if ENABLED(AUTO_BED_LEVELING_FEATURE) && DISABLED(Z_PROBE_SLED) && (HAS_SERVO_ENDSTOPS || ENABLED(Z_PROBE_ALLEN_KEY))
+#if (ENABLED(AUTO_BED_LEVELING_FEATURE)||ENABLED(AUTO_MESH_BED_LEVELING)) && DISABLED(Z_PROBE_SLED) && (HAS_SERVO_ENDSTOPS || ENABLED(Z_PROBE_ALLEN_KEY))
 
   /**
    * M401: Engage Z Servo endstop if available
@@ -5313,7 +5581,7 @@ inline void gcode_M400() { st_synchronize(); }
     stow_z_probe(false);
   }
 
-#endif // AUTO_BED_LEVELING_FEATURE && (HAS_SERVO_ENDSTOPS || Z_PROBE_ALLEN_KEY) && !Z_PROBE_SLED
+#endif // (ENABLED(AUTO_BED_LEVELING_FEATURE)||ENABLED(AUTO_MESH_BED_LEVELING)) && (HAS_SERVO_ENDSTOPS || Z_PROBE_ALLEN_KEY) && !Z_PROBE_SLED
 
 #if ENABLED(FILAMENT_SENSOR)
 
@@ -6032,7 +6300,7 @@ void process_next_command() {
           break;
       #endif
 
-      #if ENABLED(AUTO_BED_LEVELING_FEATURE)
+//pjk      #if ENABLED(AUTO_BED_LEVELING_FEATURE)
 
         #if DISABLED(Z_PROBE_SLED)
 
@@ -6049,7 +6317,7 @@ void process_next_command() {
 
         #endif // Z_PROBE_SLED
 
-      #endif // AUTO_BED_LEVELING_FEATURE
+//pjk      #endif // AUTO_BED_LEVELING_FEATURE
 
       case 90: // G90
         relative_mode = false;
@@ -6121,12 +6389,16 @@ void process_next_command() {
         gcode_M42();
         break;
 
-      #if ENABLED(AUTO_BED_LEVELING_FEATURE) && ENABLED(Z_MIN_PROBE_REPEATABILITY_TEST)
+      #if (ENABLED(AUTO_BED_LEVELING_FEATURE)||ENABLED(AUTO_MESH_BED_LEVELING)) && ENABLED(Z_MIN_PROBE_REPEATABILITY_TEST)
         case 48: // M48 Z probe repeatability
           gcode_M48();
           break;
-      #endif // AUTO_BED_LEVELING_FEATURE && Z_MIN_PROBE_REPEATABILITY_TEST
+      #endif // (ENABLED(AUTO_BED_LEVELING_FEATURE)||ENABLED(AUTO_MESH_BED_LEVELING)) && Z_MIN_PROBE_REPEATABILITY_TEST
 
+				
+			case 53:
+				gcode_M53();
+				break;
       #if ENABLED(M100_FREE_MEMORY_WATCHER)
         case 100:
           gcode_M100();
@@ -6399,7 +6671,7 @@ void process_next_command() {
         gcode_M400();
         break;
 
-      #if ENABLED(AUTO_BED_LEVELING_FEATURE) && (HAS_SERVO_ENDSTOPS || ENABLED(Z_PROBE_ALLEN_KEY)) && DISABLED(Z_PROBE_SLED)
+      #if (ENABLED(AUTO_BED_LEVELING_FEATURE)||ENABLED(AUTO_MESH_BED_LEVELING)) && (HAS_SERVO_ENDSTOPS || ENABLED(Z_PROBE_ALLEN_KEY)) && DISABLED(Z_PROBE_SLED)
         case 401:
           gcode_M401();
           break;
@@ -6567,9 +6839,12 @@ void clamp_to_software_endstops(float target[3]) {
     NOLESS(target[X_AXIS], min_pos[X_AXIS]);
     NOLESS(target[Y_AXIS], min_pos[Y_AXIS]);
 
-    float negative_z_offset = 0;
-    #if ENABLED(AUTO_BED_LEVELING_FEATURE)
-      if (zprobe_zoffset < 0) negative_z_offset += zprobe_zoffset;
+    float negative_z_offset = -0.5;   //allow head to touch bed by 1/2 mm so can seek head to touch bed
+    #if ENABLED(AUTO_BED_LEVELING_FEATURE) || defined(MESH_BED_LEVELING)
+// pjk I don't think this should be added here
+// would be needed if bed was homed to z-probe 
+// but on homing zero is set to probe point + zprobe_zoffset
+//     if (zprobe_zoffset < 0) negative_z_offset += zprobe_zoffset;
       if (home_offset[Z_AXIS] < 0) {
         #if ENABLED(DEBUG_LEVELING_FEATURE)
           if (marlin_debug_flags & DEBUG_LEVELING) {

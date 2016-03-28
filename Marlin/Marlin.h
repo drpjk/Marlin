@@ -324,7 +324,7 @@ extern bool axis_homed[3]; // axis[n].is_homed
   extern float z_endstop_adj;
 #endif
 
-#if ENABLED(AUTO_BED_LEVELING_FEATURE)
+#if ENABLED(AUTO_BED_LEVELING_FEATURE) || ENABLED(AUTO_MESH_BED_LEVELING)
   extern float zprobe_zoffset;
 #endif
 
