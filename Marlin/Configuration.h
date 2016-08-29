@@ -610,13 +610,13 @@ const bool Z_MIN_PROBE_ENDSTOP_INVERTING = false; // set to true to invert the l
   //  (0,0)
   #define X_PROBE_OFFSET_FROM_EXTRUDER 32  // X offset: -left  [of the nozzle] +right
   #define Y_PROBE_OFFSET_FROM_EXTRUDER 2  // Y offset: -front [of the nozzle] +behind
-  #define Z_PROBE_OFFSET_FROM_EXTRUDER -2.825   // Z offset: -below [the nozzle] (always negative!)
+  #define Z_PROBE_OFFSET_FROM_EXTRUDER -2.4    // Z offset: -below [the nozzle] (always negative!)
 
-  #define XY_TRAVEL_SPEED 3000         // X and Y axis travel speed between probes, in mm/min.
+  #define XY_TRAVEL_SPEED 3000        // X and Y axis travel speed between probes, in mm/min.
 
-  #define Z_RAISE_BEFORE_PROBING 4   // How much the Z axis will be raised before traveling to the first probing point.
+  #define Z_RAISE_BEFORE_PROBING 4    // How much the Z axis will be raised before traveling to the first probing point.
   #define Z_RAISE_BETWEEN_PROBINGS 2  // How much the Z axis will be raised when traveling from between next probing points.
-  #define Z_RAISE_AFTER_PROBING 4    // How much the Z axis will be raised after the last probing point.
+  #define Z_RAISE_AFTER_PROBING 4     // How much the Z axis will be raised after the last probing point.
 
   //#define Z_PROBE_END_SCRIPT "G1 Z10 F12000\nG1 X15 Y330\nG1 Z0.5\nG1 Z10" // These commands will be executed in the end of G29 routine.
                                                                              // Useful to retract a deployable Z probe.
@@ -709,10 +709,10 @@ const bool Z_MIN_PROBE_ENDSTOP_INVERTING = false; // set to true to invert the l
 // Custom M code points
 #define CUSTOM_M_CODES
 #if ENABLED(CUSTOM_M_CODES)
-  #if ENABLED(AUTO_BED_LEVELING_FEATURE)
-    #define CUSTOM_M_CODE_SET_Z_PROBE_OFFSET 851
-    #define Z_PROBE_OFFSET_RANGE_MIN -20
-    #define Z_PROBE_OFFSET_RANGE_MAX 20
+  #if ENABLED(AUTO_BED_LEVELING_FEATURE)  || ENABLED(AUTO_MESH_BED_LEVELING)
+		#define CUSTOM_M_CODE_SET_Z_PROBE_OFFSET 851
+		#define Z_PROBE_OFFSET_RANGE_MIN -20
+		#define Z_PROBE_OFFSET_RANGE_MAX 20
   #endif
 #endif
 
