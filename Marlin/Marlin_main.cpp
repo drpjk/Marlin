@@ -1406,7 +1406,7 @@ static void setup_for_endstop_move() {
       plan_bed_level_matrix.set_to_identity();
    #elif ENABLED(AUTO_MESH_BED_LEVELING)
 		uint8_t mbl_was_active = mbl.active;    
-		mbl.active=0;
+		mbl.dysengage();
 	#endif
       feedrate = homing_feedrate[Z_AXIS];
 
@@ -1443,7 +1443,7 @@ static void setup_for_endstop_move() {
         }
       #endif
 		#if ENABLED(MESH_BED_LEVELING)
-			mbl_was_active = mbl_was_active;
+			 if (mbl_was_active) mbl.engage();
 		#endif
 
     #endif // !DELTA
@@ -1723,6 +1723,9 @@ static void setup_for_endstop_move() {
   };
 
   // Probe bed height at position (x,y), returns the measured z value
+  // Assume coordinates of point to be probed specify extruder position
+  // So needs to use X & Y OFFSET_FROM_EXTRUDER to adjust probed coordinates.
+  
   static float probe_pt(float x, float y, float z_before, ProbeAction probe_action = ProbeDeployAndStow, int verbose_level = 1) {
     #if ENABLED(DEBUG_LEVELING_FEATURE)
       if (marlin_debug_flags & DEBUG_LEVELING) {
@@ -2413,7 +2416,7 @@ inline void gcode_G28() {
   // For manual bed leveling deactivate the matrix temporarily
   #if ENABLED(MESH_BED_LEVELING)
     uint8_t mbl_was_active = mbl.active;
-    mbl.active = 0;
+    mbl.dysengage();
   #endif
 
   setup_for_endstop_move();
@@ -2729,7 +2732,7 @@ inline void gcode_G28() {
     }
    #endif
 	#if ENABLED(AUTO_MESH_BED_LEVELING)
-		mbl.active = mbl_was_active;
+		if (mbl_was_active) mbl.engage();
 	#endif
 
   feedrate = saved_feedrate;
@@ -2898,7 +2901,7 @@ inline void gcode_G28() {
 #elif ENABLED(AUTO_MESH_BED_LEVELING)
 
 /**
-   * G29: Detailed Z probe, probes the bed at 3 or more points.
+   * G29: Detailed Z probe, probes mesh
    *      Will fail if the printer has not been homed with G28.
    *
    * Enhanced G29 Auto Bed Leveling Probe Routine
@@ -2922,6 +2925,9 @@ inline void gcode_G28() {
    *     Include "E" to engage/disengage the Z probe for each sample.
    *     There's no extra effect if you have a fixed Z probe.
    *     Usage: "G29 E" or "G29 e"
+   * 
+   * Probe points must have integer coordinates
+   * Note this does not contrain X & Y OFSET_FROM_EXTRUDER which may be floats
    *
    */
   inline void gcode_G29() {
@@ -3066,11 +3072,6 @@ inline void gcode_G28() {
 
 #elif ENABLED(AUTO_BED_LEVELING_FEATURE)
 
-  void out_of_range_error(const char* p_edge) {
-    SERIAL_PROTOCOLPGM("?Probe ");
-    serialprintPGM(p_edge);
-    SERIAL_PROTOCOLLNPGM(" position out of range.");
-  }
 
   /**
    * G29: Detailed Z probe, probes the bed at 3 or more points.
@@ -3569,11 +3570,11 @@ inline void gcode_G28() {
 #if DISABLED(Z_PROBE_SLED) // could be avoided
 
     /**
-     * G30: Do a single Z probe at the current XY
+     * G30: Do  Z probe at the current XY
      * Set iterations with "P"
      * adjust Z axis zero position according to average result "Z"
      */
-    inline void gcode_G30() {
+   inline void gcode_G30() {
       #if HAS_SERVO_ENDSTOPS
         raise_z_for_servo();
       #endif
@@ -3589,13 +3590,21 @@ inline void gcode_G28() {
       deploy_z_probe(); // Engage Z Servo endstop if available. Z_PROBE_SLED is missed her.
 
       st_synchronize();
-      // TODO: clear the leveling matrix or the planner will be set incorrectly
+      
+       // TODO: clear the leveling matrix or the planner will be set incorrectly
+      #if ENABLED(AUTO_MESH_BED_LEVELING)
+			uint8_t mbl_was_active = mbl.active;
+			mbl.dysengage();
+		#endif
+    
+
       setup_for_endstop_move(); // to late. Must be done before deploying.
 
       float mean=0, sumsq=0, lastmean=0;
       int n;
       for (n=1;n<=iterations;++n)
       {
+
 			feedrate = homing_feedrate[Z_AXIS];
 
 			run_z_probe();
@@ -3608,13 +3617,13 @@ inline void gcode_G28() {
 			sumsq += (reading - lastmean)*(reading - mean);
 
 			SERIAL_PROTOCOLPGM("Bed X: ");
-        SERIAL_PROTOCOL(current_position[X_AXIS] + 0.0001);
-        SERIAL_PROTOCOLPGM(" Y: ");
-        SERIAL_PROTOCOL(current_position[Y_AXIS] + 0.0001);
-        SERIAL_PROTOCOLPGM(" Z: ");
-        SERIAL_PROTOCOL_F(reading + 0.0001,3);
-        SERIAL_EOL;	
-        	raise_z_after_probing();	
+			SERIAL_PROTOCOL(current_position[X_AXIS] + 0.0001);
+			SERIAL_PROTOCOLPGM(" Y: ");
+			SERIAL_PROTOCOL(current_position[Y_AXIS] + 0.0001);
+			SERIAL_PROTOCOLPGM(" Z: ");
+			SERIAL_PROTOCOL_F(reading + 0.0001,3);
+			SERIAL_EOL;	
+			raise_z_after_probing();
       }
       if (iterations>1) {
 			SERIAL_PROTOCOLPGM("Mean Z: ");
@@ -3622,32 +3631,40 @@ inline void gcode_G28() {
 			SERIAL_PROTOCOLPGM(" Std Z: ");
 			SERIAL_PROTOCOL_F(sqrt(sumsq/(iterations-1)) ,3);
 			SERIAL_EOL;
-			if (mbl.active) {
+		#if ENABLED(AUTO_MESH_BED_LEVELING)			
+			if (mbl_was_active) {
 				SERIAL_PROTOCOLPGM("Mesh Corrected Z: ");
 				SERIAL_PROTOCOL_F(mean-mbl.get_z(current_position[X_AXIS],current_position[Y_AXIS]) ,3);
 				SERIAL_EOL;
 			}
+		#endif
+			
       }
       clean_up_after_endstop_move();
 
       #if HAS_SERVO_ENDSTOPS
         raise_z_for_servo();
       #endif
+ 
       stow_z_probe(false); // Retract Z Servo endstop if available
+
       st_synchronize();
+
       if (z) {
 			current_position[Z_AXIS] -= mean;
 			SERIAL_PROTOCOLPGM("Z-height changed by : ");
 			SERIAL_PROTOCOL_F(mean ,3);
-			SERIAL_PROTOCOLPGM("\n");						
+			SERIAL_PROTOCOLPGM("\n");							
 			#if ENABLED(DELTA) || ENABLED(SCARA)
 				sync_plan_position_delta();
 			#else
 				sync_plan_position();
-    #endif
-	
+			#endif
 		}
-    }
+		 #if ENABLED(AUTO_MESH_BED_LEVELING)
+			if (mbl_was_active) mbl.engage();
+		 #endif
+   }
 
 #endif //!Z_PROBE_SLED
 
@@ -4070,8 +4087,10 @@ inline void gcode_M42() {
       reset_bed_level();    // we don't do bed level correction in M48 because we want the raw data when we probe
     #elif ENABLED(AUTO_BED_LEVELING_FEATURE)
       plan_bed_level_matrix.set_to_identity();  // we don't do bed level correction in M48 because we wantthe raw data when we probe
-    #else 
-		mbl.active=0;
+    #endif
+    #if ENABLED(AUTO_MESH_BED_LEVELING)
+    uint8_t mbl_was_active = mbl.active;
+		mbl.dysengage();
     #endif
 
     if (Z_start_location < Z_RAISE_BEFORE_PROBING * 2.0)
@@ -4225,6 +4244,10 @@ inline void gcode_M42() {
     delay(25);
 
     clean_up_after_endstop_move();
+    
+    #if ENABLED(AUTO_MESH_BED_LEVELING)
+    if (mbl_was_active) mbl.engage();
+    #endif
 
     gcode_M114(); // Send end position to RepetierHost
   }
@@ -4270,6 +4293,15 @@ inline void gcode_M53()  {
       SERIAL_PROTOCOLPGM(" Z: ");
       SERIAL_PROTOCOL_F(current_position[Z_AXIS], 3);
       SERIAL_EOL;
+      
+		if (mbl.active) {
+			SERIAL_PROTOCOLPGM("Mesh Delta Z: ");
+			SERIAL_PROTOCOL_F(mbl.get_z(current_position[X_AXIS],current_position[Y_AXIS]) ,3);		
+			SERIAL_PROTOCOLPGM("  Mesh Corrected Z: ");
+			SERIAL_PROTOCOL_F(current_position[Z_AXIS]+mbl.get_z(current_position[X_AXIS],current_position[Y_AXIS]) ,3);
+			SERIAL_EOL;
+		}
+      
 
       SERIAL_PROTOCOLPGM("From Step count X: ");
 		SERIAL_PROTOCOL(st_get_axis_position_mm(X_AXIS));
@@ -4278,7 +4310,7 @@ inline void gcode_M53()  {
 		SERIAL_PROTOCOLPGM(" Z:");
 		SERIAL_PROTOCOL_F(st_get_axis_position_mm(Z_AXIS),3);
 		SERIAL_EOL;  
-		  
+
 		SERIAL_PROTOCOLPGM("Destination X: ");
 		SERIAL_PROTOCOL_F(destination[X_AXIS], 3);
       SERIAL_PROTOCOLPGM(" Y: ");
@@ -4817,22 +4849,34 @@ inline void gcode_M114() {
 	SERIAL_EOL;
 	
 	if (mbl.active) {
+		SERIAL_PROTOCOLPGM("Mesh Delta Z: ");
+		SERIAL_PROTOCOL_F(mbl.get_z(current_position[X_AXIS],current_position[Y_AXIS]) ,3);		
 		SERIAL_PROTOCOLPGM("Mesh Corrected Z: ");
-		SERIAL_PROTOCOL_F(current_position[Z_AXIS]-mbl.get_z(current_position[X_AXIS],current_position[Y_AXIS]) ,3);
+		SERIAL_PROTOCOL_F(current_position[Z_AXIS]+mbl.get_z(current_position[X_AXIS],current_position[Y_AXIS]) ,3);
 		SERIAL_EOL;
 	}
 	
-  CRITICAL_SECTION_START;
-  extern volatile long count_position[NUM_AXIS];
-  long xpos = count_position[X_AXIS],
+	CRITICAL_SECTION_START;
+	extern volatile long count_position[NUM_AXIS];
+	long xpos = count_position[X_AXIS],
        ypos = count_position[Y_AXIS],
        zpos = count_position[Z_AXIS];
-  CRITICAL_SECTION_END;
+	CRITICAL_SECTION_END;
 
+	
+	SERIAL_PROTOCOLPGM("X-count: ");
+	SERIAL_PROTOCOL(xpos);
+	SERIAL_PROTOCOLPGM(" Y: ");
+	SERIAL_PROTOCOL(ypos);
+	SERIAL_PROTOCOLPGM(" Z: ");
+	SERIAL_PROTOCOL(zpos);
+	SERIAL_EOL;
+  
+/*
   #if ENABLED(COREXY) || ENABLED(COREXZ)
     SERIAL_PROTOCOLPGM(MSG_COUNT_A);
   #else
-    SERIAL_PROTOCOLPGM(MSG_COUNT_X);
+	SERIAL_PROTOCOLPGM(MSG_COUNT_X);
   #endif
   SERIAL_PROTOCOL(xpos);
 
@@ -4871,6 +4915,8 @@ inline void gcode_M114() {
     SERIAL_PROTOCOL((delta[Y_AXIS] - delta[X_AXIS]) / 90 * axis_steps_per_unit[Y_AXIS]);
     SERIAL_EOL; SERIAL_EOL;
   #endif
+  
+*/
 }
 
 /**
@@ -5727,13 +5773,12 @@ inline void gcode_M410() { quickStop(); }
   inline void gcode_M420() { 
 	if (code_seen('S') && code_has_value()) 
 		mbl.active = !!code_value_short();
-	else {
-		SERIAL_PROTOCOLPGM("Mesh Bed Leveling  ");
-		if (mbl.active) 
-			SERIAL_PROTOCOLPGM("Active\n");
-		else
-			SERIAL_PROTOCOLPGM("Not Active\n");
-	} 
+	SERIAL_PROTOCOLPGM("Mesh Bed Leveling  ");
+	if (mbl.active) 
+		SERIAL_PROTOCOLPGM("Active\n");
+	else
+		SERIAL_PROTOCOLPGM("Not Active\n");
+	
 	  
 }
 
@@ -6826,7 +6871,6 @@ void process_next_command() {
       #endif
 
       #ifdef CUSTOM_M_CODE_SET_Z_PROBE_OFFSET
- //     #pragma message "CUSTOM_M_ODE_SET_Z_PROBE_OFFSET is defined"
         case CUSTOM_M_CODE_SET_Z_PROBE_OFFSET:
           gcode_SET_Z_PROBE_OFFSET();
           break;

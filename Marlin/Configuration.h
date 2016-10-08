@@ -608,6 +608,12 @@ const bool Z_MIN_PROBE_ENDSTOP_INVERTING = false; // set to true to invert the l
   //    |           |
   //    O-- FRONT --+
   //  (0,0)
+  //  therefore to probe height of bed below nozzle need to probe point
+  //  ((xprobe-X_PROBE_OFFSET_FROM_EXTRUDER),(yprobe-Y_PROBE_OFFSET_FROM_EXTRUDER))
+  //   function probe_pt() allready computes this offset.
+  //   OFFSET_FROM_EXTRUDER may be floats
+  //   but points probed must be integer so that mesh-bed leveling can use integer arithmetic to find grid point
+  
   #define X_PROBE_OFFSET_FROM_EXTRUDER 32  // X offset: -left  [of the nozzle] +right
   #define Y_PROBE_OFFSET_FROM_EXTRUDER 2  // Y offset: -front [of the nozzle] +behind
   #define Z_PROBE_OFFSET_FROM_EXTRUDER -2.4    // Z offset: -below [the nozzle] (always negative!)
