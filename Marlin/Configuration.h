@@ -616,7 +616,7 @@ const bool Z_MIN_PROBE_ENDSTOP_INVERTING = false; // set to true to invert the l
   
   #define X_PROBE_OFFSET_FROM_EXTRUDER 32  // X offset: -left  [of the nozzle] +right
   #define Y_PROBE_OFFSET_FROM_EXTRUDER 2  // Y offset: -front [of the nozzle] +behind
-  #define Z_PROBE_OFFSET_FROM_EXTRUDER -2.4    // Z offset: -below [the nozzle] (always negative!)
+  #define Z_PROBE_OFFSET_FROM_EXTRUDER -2.95    // Z offset: -below [the nozzle] (always negative!)
 
   #define XY_TRAVEL_SPEED 3000        // X and Y axis travel speed between probes, in mm/min.
 
@@ -944,7 +944,7 @@ const bool Z_MIN_PROBE_ENDSTOP_INVERTING = false; // set to true to invert the l
 //#define X_ENDSTOP_SERVO_NR 1
 //#define Y_ENDSTOP_SERVO_NR 2
 #define Z_ENDSTOP_SERVO_NR 0
-#define SERVO_ENDSTOP_ANGLES {{0,0}, {0,0}, {19,100}} // X,Y,Z Axis Extend and Retract angles
+#define SERVO_ENDSTOP_ANGLES {{0,0}, {0,0}, {30,110}} // X,Y,Z Axis Extend and Retract angles
 
 // Servo deactivation
 //

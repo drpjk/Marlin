@@ -1995,7 +1995,7 @@ static void homeaxis(AxisEnum axis) {
       }
     #endif
 
-    // Set a flag for Z motor locking
+    // Set a flag in stepper.cpp for Z motor locking
     #if ENABLED(Z_DUAL_ENDSTOPS)
       if (axis == Z_AXIS) In_Homing_Process(true);
     #endif
@@ -2102,7 +2102,7 @@ static void homeaxis(AxisEnum axis) {
           }
         }
       #endif
-    #endif
+    #endif //ENABLED(DELTA)
 
     // Set the axis position to its home position (plus home offsets)
     set_axis_is_at_home(axis);
@@ -2127,7 +2127,7 @@ static void homeaxis(AxisEnum axis) {
       }
     #elif SERVO_LEVELING || ENABLED(FIX_MOUNTED_PROBE)
 
-      // Deploy a Z probe if there is one, and homing towards the bed
+      // Stow a Z probe if there is one, and homing towards the bed
       if (axis == Z_AXIS) {
         if (axis_home_dir < 0) {
           #if ENABLED(DEBUG_LEVELING_FEATURE)
@@ -4276,7 +4276,7 @@ inline void gcode_M51() {
 
 inline void gcode_M52() {
 	if (code_seen('S')) {
-		if (servo_endstop_id[Z_AXIS] >= 0) servo[servo_endstop_id[Z_AXIS]].move(servo_endstop_angle[Z_AXIS][code_value_short()]);
+		if (servo_endstop_id[Z_AXIS] >= 0) servo[servo_endstop_id[Z_AXIS]].move(code_value_long());
 	}
 }
 
