@@ -5571,10 +5571,14 @@ void home_all_axes() { gcode_G28(true); }
  * G92: Set current position to given X Y Z E
  */
 inline void gcode_G92() {
-  bool didXYZ = false,
-       didE = parser.seen('E');
-
+  bool didXYZ = false, 
+				relative = false,	
+				didE = parser.seen('E');
+  float v;
   if (!didE) stepper.synchronize();
+	if ( parser.seen('R')) {
+		relative = true;
+	}
 
   LOOP_XYZE(i) {
     if (parser.seen(axis_codes[i])) {
@@ -5585,9 +5589,13 @@ inline void gcode_G92() {
         #if HAS_POSITION_SHIFT
           const float p = current_position[i];
         #endif
-        float v = parser.value_axis_units((AxisEnum)i);
+			if (relative && ( i == Z_AXIS )) {
+				v = current_position[i] + parser.value_axis_units((AxisEnum)i);
+			}		 
+			else
+				v = parser.value_axis_units((AxisEnum)i);
 
-        current_position[i] = v;
+      current_position[i] = v;
 
         if (i != E_AXIS) {
           didXYZ = true;
